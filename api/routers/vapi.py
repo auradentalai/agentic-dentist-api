@@ -190,8 +190,10 @@ async def vapi_webhook(request: Request):
                     "model": "gpt-4o-mini",
                     "systemPrompt": CONCIERGE_SYSTEM_PROMPT,
                     "temperature": 0.3,
-                    "tools": TOOLS,
+                    
                 },
+                "serverUrl": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook",
+                "tools": TOOLS,
                 "voice": {
                     "provider": "11labs",
                     "voiceId": "21m00Tcm4TlvDq8ikWAM",
