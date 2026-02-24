@@ -176,13 +176,17 @@ async def vapi_webhook(request: Request):
     message = body.get("message", {})
     event_type = message.get("type", "")
 
-    # assistant-request: Dynamic assistant config with tools
-    if event_type == "assistant-request":
+    # Safe extraction — Vapi sends null for call/metadata in some events
         call = message.get("call") or {}
         metadata = call.get("metadata") or {}
         if not metadata.get("workspace_id"):
             metadata["workspace_id"] = DEFAULT_WORKSPACE_ID
+        workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
+        print(f"[VAPI] event={event_type}, workspace={workspace_id}")
 
+    # assistant-request: Dynamic assistant config with tools
+    if event_type == "assistant-request":
+        
         return {
             "assistant": {
                 "model": {
@@ -224,10 +228,6 @@ async def vapi_webhook(request: Request):
 
     # status-update
     if event_type == "status-update":
-        call = message.get("call") or {}
-        status = message.get("status", "")
-        metadata = call.get("metadata") or {}
-        workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
 
         if workspace_id:
             await log_audit_event(
@@ -246,9 +246,6 @@ async def vapi_webhook(request: Request):
 
     # end-of-call-report
     if event_type == "end-of-call-report":
-        call = message.get("call") or {}
-        metadata = call.get("metadata") or {}
-        workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
         summary = message.get("summary", "")
         transcript = message.get("transcript", "")
         duration_seconds = message.get("durationSeconds", 0)
