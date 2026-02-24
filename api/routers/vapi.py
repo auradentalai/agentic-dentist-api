@@ -178,7 +178,7 @@ async def vapi_webhook(request: Request):
 
     # assistant-request: Dynamic assistant config with tools
     if event_type == "assistant-request":
-        call = message.get("call", {})
+        call = message.get("call") or {}
         metadata = call.get("metadata") or {}
         if not metadata.get("workspace_id"):
             metadata["workspace_id"] = DEFAULT_WORKSPACE_ID
@@ -213,7 +213,7 @@ async def vapi_webhook(request: Request):
         function_call = message.get("functionCall", {})
         fn_name = function_call.get("name", "")
         fn_params = function_call.get("parameters", {})
-        call = message.get("call", {})
+        call = message.get("call") or {}
         metadata = call.get("metadata") or {}
         workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
         print(f"[VAPI DEBUG] function={fn_name}, params={fn_params}, workspace_id={workspace_id}, metadata={metadata}")
@@ -224,7 +224,7 @@ async def vapi_webhook(request: Request):
 
     # status-update
     if event_type == "status-update":
-        call = message.get("call", {})
+        call = message.get("call") or {}
         status = message.get("status", "")
         metadata = call.get("metadata") or {}
         workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
@@ -246,7 +246,7 @@ async def vapi_webhook(request: Request):
 
     # end-of-call-report
     if event_type == "end-of-call-report":
-        call = message.get("call", {})
+        call = message.get("call") or {}
         metadata = call.get("metadata") or {}
         workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
         summary = message.get("summary", "")
