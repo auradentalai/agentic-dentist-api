@@ -177,7 +177,7 @@ async def vapi_webhook(request: Request):
     event_type = message.get("type", "")
 
     # assistant-request: Dynamic assistant config with tools
-     if event_type == "assistant-request":
+    if event_type == "assistant-request":
         call = message.get("call", {})
         metadata = call.get("metadata", {})
         if not metadata.get("workspace_id"):
