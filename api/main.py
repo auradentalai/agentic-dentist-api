@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.core.config import settings
-from api.routers import health, agents
+from api.routers import health, agents, vapi
 
 app = FastAPI(
     title="The Agentic Dentist — API",
@@ -21,7 +21,7 @@ app.add_middleware(
 # Routers
 app.include_router(health.router, tags=["Health"])
 app.include_router(agents.router, prefix="/api/agents", tags=["Agents"])
-
+app.include_router(vapi.router, prefix="/api/vapi", tags=["Vapi"])
 
 @app.get("/")
 async def root():
