@@ -52,123 +52,103 @@ Key behaviors:
 TOOLS = [
     {
         "type": "function",
+        "messages": [
+            {"type": "request-start", "content": "Let me check that for you."},
+        ],
         "function": {
             "name": "check_availability",
-            "description": "Check available appointment slots for a specific date",
+            "description": "Check available appointment slots for a specific date. ALWAYS use this before telling the patient about availability.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "date": {
-                        "type": "string",
-                        "description": "Date to check in YYYY-MM-DD format",
-                    },
-                    "duration_minutes": {
-                        "type": "integer",
-                        "description": "Duration of appointment in minutes (default 30)",
-                        "default": 30,
-                    },
+                    "date": {"type": "string", "description": "Date in YYYY-MM-DD format"},
                 },
                 "required": ["date"],
             },
         },
+        "server": {
+            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
+        },
     },
     {
         "type": "function",
+        "messages": [
+            {"type": "request-start", "content": "Let me find the next available openings for you."},
+        ],
         "function": {
             "name": "find_next_available",
-            "description": "Find the next available appointment slots across the next 14 days",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "duration_minutes": {
-                        "type": "integer",
-                        "description": "Duration needed in minutes (default 30)",
-                        "default": 30,
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "book_appointment",
-            "description": "Book a new appointment at a specific date and time",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "date": {
-                        "type": "string",
-                        "description": "Appointment date in YYYY-MM-DD format",
-                    },
-                    "time": {
-                        "type": "string",
-                        "description": "Appointment time in HH:MM format (24-hour)",
-                    },
-                    "appointment_type": {
-                        "type": "string",
-                        "description": "Type: cleaning, exam, filling, crown, root_canal, extraction, consultation, emergency, follow_up, general",
-                        "default": "general",
-                    },
-                },
-                "required": ["date", "time"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "cancel_appointment",
-            "description": "Cancel a patient's next upcoming appointment. Will return suggested reschedule dates.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reason": {
-                        "type": "string",
-                        "description": "Reason for cancellation",
-                        "default": "Patient requested cancellation",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "reschedule_appointment",
-            "description": "Reschedule an appointment to a new date and time",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "new_date": {
-                        "type": "string",
-                        "description": "New date in YYYY-MM-DD format",
-                    },
-                    "new_time": {
-                        "type": "string",
-                        "description": "New time in HH:MM format (24-hour)",
-                    },
-                },
-                "required": ["new_date", "new_time"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_patient_appointments",
-            "description": "Look up a patient's upcoming appointments",
+            "description": "Find the next available appointment slots. ALWAYS use this when the patient asks to book and hasn't specified a date.",
             "parameters": {
                 "type": "object",
                 "properties": {},
                 "required": [],
             },
         },
+        "server": {
+            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
+        },
+    },
+    {
+        "type": "function",
+        "messages": [
+            {"type": "request-start", "content": "Let me book that for you now."},
+        ],
+        "function": {
+            "name": "book_appointment",
+            "description": "Book a new appointment at a specific date and time.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string", "description": "Date in YYYY-MM-DD format"},
+                    "time": {"type": "string", "description": "Time in HH:MM 24-hour format"},
+                    "appointment_type": {"type": "string", "description": "Type: cleaning, exam, filling, crown, consultation, general"},
+                },
+                "required": ["date", "time"],
+            },
+        },
+        "server": {
+            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
+        },
+    },
+    {
+        "type": "function",
+        "messages": [
+            {"type": "request-start", "content": "Let me cancel that appointment for you."},
+        ],
+        "function": {
+            "name": "cancel_appointment",
+            "description": "Cancel the patient's next upcoming appointment.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string", "description": "Reason for cancellation"},
+                },
+                "required": [],
+            },
+        },
+        "server": {
+            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
+        },
+    },
+    {
+        "type": "function",
+        "messages": [
+            {"type": "request-start", "content": "Let me look up your appointments."},
+        ],
+        "function": {
+            "name": "get_patient_appointments",
+            "description": "Look up the patient's upcoming appointments.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+        "server": {
+            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
+        },
     },
 ]
-
 
 @router.post("/webhook")
 async def vapi_webhook(request: Request):
