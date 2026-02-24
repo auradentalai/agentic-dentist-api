@@ -52,12 +52,9 @@ Key behaviors:
 TOOLS = [
     {
         "type": "function",
-        "messages": [
-            {"type": "request-start", "content": "Let me check that for you."},
-        ],
         "function": {
             "name": "check_availability",
-            "description": "Check available appointment slots for a specific date. ALWAYS use this before telling the patient about availability.",
+            "description": "Check available appointment slots for a specific date. ALWAYS call this before telling the patient about availability.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -66,33 +63,21 @@ TOOLS = [
                 "required": ["date"],
             },
         },
-        "server": {
-            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
-        },
     },
     {
         "type": "function",
-        "messages": [
-            {"type": "request-start", "content": "Let me find the next available openings for you."},
-        ],
         "function": {
             "name": "find_next_available",
-            "description": "Find the next available appointment slots. ALWAYS use this when the patient asks to book and hasn't specified a date.",
+            "description": "Find next available appointment slots. ALWAYS call this when patient asks to book.",
             "parameters": {
                 "type": "object",
                 "properties": {},
                 "required": [],
             },
         },
-        "server": {
-            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
-        },
     },
     {
         "type": "function",
-        "messages": [
-            {"type": "request-start", "content": "Let me book that for you now."},
-        ],
         "function": {
             "name": "book_appointment",
             "description": "Book a new appointment at a specific date and time.",
@@ -106,15 +91,9 @@ TOOLS = [
                 "required": ["date", "time"],
             },
         },
-        "server": {
-            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
-        },
     },
     {
         "type": "function",
-        "messages": [
-            {"type": "request-start", "content": "Let me cancel that appointment for you."},
-        ],
         "function": {
             "name": "cancel_appointment",
             "description": "Cancel the patient's next upcoming appointment.",
@@ -126,15 +105,9 @@ TOOLS = [
                 "required": [],
             },
         },
-        "server": {
-            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
-        },
     },
     {
         "type": "function",
-        "messages": [
-            {"type": "request-start", "content": "Let me look up your appointments."},
-        ],
         "function": {
             "name": "get_patient_appointments",
             "description": "Look up the patient's upcoming appointments.",
@@ -144,12 +117,8 @@ TOOLS = [
                 "required": [],
             },
         },
-        "server": {
-            "url": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook"
-        },
     },
 ]
-
 @router.post("/webhook")
 async def vapi_webhook(request: Request):
     """Main Vapi webhook endpoint."""
