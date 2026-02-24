@@ -80,6 +80,7 @@ def route_to_agent(state: OrchestratorState) -> str:
     # After Concierge, route by intent
     if "concierge" in outputs:
         refined_intent = outputs["concierge"].get("refined_intent", intent)
+        can_handle = outputs["concierge"].get("can_handle", False)
 
         if refined_intent in ("clinical_question", "treatment_plan", "chart_review"):
             if "diagnostician" not in outputs:
@@ -89,10 +90,9 @@ def route_to_agent(state: OrchestratorState) -> str:
             if "auditor" not in outputs:
                 return "auditor"
 
-        # After specialist, Liaison sends communications
-        if "diagnostician" in outputs or "auditor" in outputs:
-            if "liaison" not in outputs:
-                return "liaison"
+        # After specialist, or if Concierge handled it, Liaison drafts comms
+        if "liaison" not in outputs:
+            return "liaison"
 
     # Manual triggers go directly to the specified agent
     if state["trigger_type"] == "manual_trigger":
