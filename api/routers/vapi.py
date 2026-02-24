@@ -1,5 +1,5 @@
 """
-Vapi Webhook Handler — now with real scheduling tools.
+Vapi Webhook Handler — with real scheduling tools.
 
 The Concierge can check availability, book, cancel, and reschedule
 during live phone calls via Vapi function calling.
@@ -19,10 +19,11 @@ from api.services.appointments import (
 )
 import json
 import os
-
-DEFAULT_WORKSPACE_ID = os.environ.get("DEFAULT_WORKSPACE_ID", "")
+import traceback
 
 router = APIRouter()
+
+DEFAULT_WORKSPACE_ID = os.environ.get("DEFAULT_WORKSPACE_ID", "")
 
 CONCIERGE_SYSTEM_PROMPT = """You are the Concierge AI assistant for a dental practice. You are the first point of contact for patients calling in.
 
@@ -172,117 +173,121 @@ TOOLS = [
 @router.post("/webhook")
 async def vapi_webhook(request: Request):
     """Main Vapi webhook endpoint."""
-    body = await request.json()
-    message = body.get("message", {})
-    event_type = message.get("type", "")
+    try:
+        body = await request.json()
+        message = body.get("message") or {}
+        event_type = message.get("type", "")
 
-    # Safe extraction — Vapi sends null for call/metadata in some events
+        # Safe extraction — Vapi sends null for call/metadata in some events
         call = message.get("call") or {}
         metadata = call.get("metadata") or {}
         if not metadata.get("workspace_id"):
             metadata["workspace_id"] = DEFAULT_WORKSPACE_ID
         workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
+        patient_ref = metadata.get("patient_ref")
+
         print(f"[VAPI] event={event_type}, workspace={workspace_id}")
 
-    # assistant-request: Dynamic assistant config with tools
-    if event_type == "assistant-request":
-        
-        return {
-            "assistant": {
-                "model": {
-                    "provider": "openai",
-                    "model": "gpt-4o-mini",
-                    "systemPrompt": CONCIERGE_SYSTEM_PROMPT,
-                    "temperature": 0.3,
-                    
-                },
-                "serverUrl": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook",
-                "tools": TOOLS,
-                "voice": {
-                    "provider": "11labs",
-                    "voiceId": "21m00Tcm4TlvDq8ikWAM",
-                },
-                "firstMessage": "Hello! Thank you for calling. This is the dental practice AI assistant. How can I help you today?",
-                "transcriber": {
-                    "provider": "deepgram",
-                    "model": "nova-2",
-                    "language": "en",
-                },
-                "metadata": metadata,
+        # assistant-request: Dynamic assistant config with tools
+        if event_type == "assistant-request":
+            return {
+                "assistant": {
+                    "model": {
+                        "provider": "openai",
+                        "model": "gpt-4o-mini",
+                        "systemPrompt": CONCIERGE_SYSTEM_PROMPT,
+                        "temperature": 0.3,
+                    },
+                    "serverUrl": "https://agentic-dentist-api-production.up.railway.app/api/vapi/webhook",
+                    "tools": TOOLS,
+                    "voice": {
+                        "provider": "11labs",
+                        "voiceId": "21m00Tcm4TlvDq8ikWAM",
+                    },
+                    "firstMessage": "Hello! Thank you for calling. This is the dental practice AI assistant. How can I help you today?",
+                    "transcriber": {
+                        "provider": "deepgram",
+                        "model": "nova-2",
+                        "language": "en",
+                    },
+                    "metadata": metadata,
+                }
             }
-        }
 
-    # function-call: Execute real scheduling tools
-    if event_type == "function-call":
-        function_call = message.get("functionCall", {})
-        fn_name = function_call.get("name", "")
-        fn_params = function_call.get("parameters", {})
-        call = message.get("call") or {}
-        metadata = call.get("metadata") or {}
-        workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
-        print(f"[VAPI DEBUG] function={fn_name}, params={fn_params}, workspace_id={workspace_id}, metadata={metadata}")
-        patient_ref = metadata.get("patient_ref", None)
+        # function-call: Execute real scheduling tools
+        if event_type == "function-call":
+            function_call = message.get("functionCall") or {}
+            fn_name = function_call.get("name", "")
+            fn_params = function_call.get("parameters") or {}
 
-        result = await handle_function_call(fn_name, fn_params, workspace_id, patient_ref)
-        return {"result": result}
+            print(f"[VAPI DEBUG] function={fn_name}, params={fn_params}, workspace_id={workspace_id}")
 
-    # status-update
-    if event_type == "status-update":
+            result = await handle_function_call(fn_name, fn_params, workspace_id, patient_ref)
+            return {"result": result}
 
-        if workspace_id:
-            await log_audit_event(
-                workspace_id=workspace_id,
-                actor_type="system",
-                actor_id="vapi",
-                action=f"call_{status}",
-                resource_type="call",
-                resource_id=call.get("id"),
-                metadata={
-                    "status": status,
-                    "phone_number": call.get("customer", {}).get("number", "unknown"),
-                },
-            )
-        return {"ok": True}
-
-    # end-of-call-report
-    if event_type == "end-of-call-report":
-        summary = message.get("summary", "")
-        transcript = message.get("transcript", "")
-        duration_seconds = message.get("durationSeconds", 0)
-
-        if workspace_id:
-            await log_audit_event(
-                workspace_id=workspace_id,
-                actor_type="system",
-                actor_id="vapi",
-                action="call_completed",
-                resource_type="call",
-                resource_id=call.get("id"),
-                metadata={
-                    "duration_seconds": duration_seconds,
-                    "summary": summary[:500] if summary else None,
-                },
-            )
-
-            # Post-call processing
-            try:
-                event = TriggerEvent(
-                    event_type="inbound_call",
+        # status-update
+        if event_type == "status-update":
+            status = message.get("status", "")
+            if workspace_id:
+                await log_audit_event(
                     workspace_id=workspace_id,
-                    payload={
-                        "text": summary or transcript[:1000],
-                        "channel": "phone",
-                        "call_id": call.get("id"),
-                        "post_call": True,
+                    actor_type="system",
+                    actor_id="vapi",
+                    action=f"call_{status}",
+                    resource_type="call",
+                    resource_id=call.get("id"),
+                    metadata={
+                        "status": status,
+                        "phone_number": (call.get("customer") or {}).get("number", "unknown"),
                     },
                 )
-                await run_interaction(event)
-            except Exception as e:
-                print(f"Post-call orchestrator error: {e}")
+            return {"ok": True}
 
+        # end-of-call-report
+        if event_type == "end-of-call-report":
+            summary = message.get("summary", "")
+            transcript_text = message.get("transcript", "")
+            duration_seconds = message.get("durationSeconds", 0)
+
+            if workspace_id:
+                await log_audit_event(
+                    workspace_id=workspace_id,
+                    actor_type="system",
+                    actor_id="vapi",
+                    action="call_completed",
+                    resource_type="call",
+                    resource_id=call.get("id"),
+                    metadata={
+                        "duration_seconds": duration_seconds,
+                        "summary": summary[:500] if summary else None,
+                    },
+                )
+
+                # Post-call processing
+                try:
+                    event = TriggerEvent(
+                        event_type="inbound_call",
+                        workspace_id=workspace_id,
+                        payload={
+                            "text": summary or transcript_text[:1000],
+                            "channel": "phone",
+                            "call_id": call.get("id"),
+                            "post_call": True,
+                        },
+                    )
+                    await run_interaction(event)
+                except Exception as e:
+                    print(f"[VAPI] Post-call orchestrator error: {e}")
+
+            return {"ok": True}
+
+        # transcript or unknown events
         return {"ok": True}
 
-    return {"ok": True}
+    except Exception as e:
+        print(f"[VAPI ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
+        return {"ok": True}
 
 
 async def handle_function_call(
@@ -370,7 +375,6 @@ async def handle_function_call(
             })
 
         if fn_name == "reschedule_appointment":
-            # Get patient's next appointment to reschedule
             if patient_ref:
                 appts = await get_patient_appointments(workspace_id, patient_ref)
                 if appts:
@@ -431,7 +435,9 @@ async def handle_function_call(
         return json.dumps({"error": f"Unknown function: {fn_name}"})
 
     except Exception as e:
+        print(f"[VAPI TOOL ERROR] {fn_name}: {e}")
+        traceback.print_exc()
         return json.dumps({
             "error": True,
-            "message": f"I'm sorry, I encountered an issue. Let me connect you with the front desk. Error: {str(e)}",
+            "message": f"I'm sorry, I encountered an issue. Let me connect you with the front desk.",
         })
