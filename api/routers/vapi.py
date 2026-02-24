@@ -18,6 +18,9 @@ from api.services.appointments import (
     get_patient_appointments,
 )
 import json
+import os
+
+DEFAULT_WORKSPACE_ID = os.environ.get("DEFAULT_WORKSPACE_ID", "")
 
 router = APIRouter()
 
@@ -208,7 +211,7 @@ async def vapi_webhook(request: Request):
         fn_params = function_call.get("parameters", {})
         call = message.get("call", {})
         metadata = call.get("metadata", {})
-        workspace_id = metadata.get("workspace_id", "")
+        workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
         patient_ref = metadata.get("patient_ref", None)
 
         result = await handle_function_call(fn_name, fn_params, workspace_id, patient_ref)
@@ -219,7 +222,7 @@ async def vapi_webhook(request: Request):
         call = message.get("call", {})
         status = message.get("status", "")
         metadata = call.get("metadata", {})
-        workspace_id = metadata.get("workspace_id", "")
+        workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
 
         if workspace_id:
             await log_audit_event(
@@ -240,7 +243,7 @@ async def vapi_webhook(request: Request):
     if event_type == "end-of-call-report":
         call = message.get("call", {})
         metadata = call.get("metadata", {})
-        workspace_id = metadata.get("workspace_id", "")
+        workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
         summary = message.get("summary", "")
         transcript = message.get("transcript", "")
         duration_seconds = message.get("durationSeconds", 0)
