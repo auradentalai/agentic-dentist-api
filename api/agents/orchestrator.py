@@ -129,6 +129,14 @@ async def run_concierge_node(state: OrchestratorState) -> OrchestratorState:
     state["current_agent"] = "concierge"
     state["steps"] += 1
 
+    # Pick up patient_ref identified by Concierge
+    if result.get("patient_ref") and not state["patient_ref"]:
+        state["patient_ref"] = result["patient_ref"]
+
+    # Update intent from Concierge's refined classification
+    if result.get("refined_intent"):
+        state["intent"] = result["refined_intent"]
+
     if result.get("escalate"):
         state["escalated"] = True
         state["escalation_reason"] = result.get("escalation_reason", "Concierge escalated")
