@@ -214,6 +214,7 @@ async def vapi_webhook(request: Request):
         call = message.get("call", {})
         metadata = call.get("metadata", {})
         workspace_id = metadata.get("workspace_id", "") or DEFAULT_WORKSPACE_ID
+        print(f"[VAPI DEBUG] function={fn_name}, params={fn_params}, workspace_id={workspace_id}, metadata={metadata}")
         patient_ref = metadata.get("patient_ref", None)
 
         result = await handle_function_call(fn_name, fn_params, workspace_id, patient_ref)
