@@ -69,9 +69,14 @@ def route_to_agent(state: OrchestratorState) -> str:
     intent = state["intent"]
     outputs = state["agent_outputs"]
 
-    # If already escalated, end
+    # Only hard-stop for real emergencies
     if state["escalated"]:
-        return "finalize"
+        escalation = state.get("escalation_reason", "")
+        is_emergency = any(w in escalation.lower() for w in ["emergency", "severe pain", "trauma", "bleeding"])
+        if is_emergency:
+            return "finalize"
+        # Otherwise, clear escalation and continue routing
+        state["escalated"] = False
 
     # First pass — always start with Concierge for inbound
     if "concierge" not in outputs and state["trigger_type"] in ("inbound_call", "inbound_sms", "web_chat"):
