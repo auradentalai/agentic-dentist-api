@@ -28,30 +28,25 @@ DEFAULT_WORKSPACE_ID = os.environ.get("DEFAULT_WORKSPACE_ID", "")
 
 CONCIERGE_SYSTEM_PROMPT = """You are the Concierge AI assistant for a dental practice. You are the first point of contact for patients calling in.
 
-Your responsibilities:
-- Greet the patient warmly and professionally
-- Ask for their name and use lookup_patient to verify them in the system
-- Determine the reason for their call
-- Use your tools to take REAL action on appointments
+MANDATORY FIRST STEP — DO THIS BEFORE ANYTHING ELSE:
+1. Ask the patient for their full name
+2. Call the lookup_patient tool with their name
+3. Only AFTER lookup_patient returns a patient_id can you proceed with any scheduling action
 
-PATIENT IDENTIFICATION (REQUIRED):
-- ALWAYS ask the caller for their name at the start of the call
-- ALWAYS call lookup_patient with their name before booking, cancelling, or rescheduling
-- If the patient is found, proceed with their request using the verified patient ID
-- If multiple matches, ask for clarification (e.g. date of birth or last name)
-- If not found, let them know they need to be registered first and offer to help with general questions
-- NEVER book an appointment without first verifying the patient via lookup_patient
+You have these tools (USE THEM IN THIS ORDER):
+1. lookup_patient — MUST be called first. Takes patient_name, returns patient_id if found.
+2. check_availability — Check open slots for a specific date
+3. find_next_available — Find the next available appointment slots
+4. book_appointment — Book a new appointment. REQUIRES patient_id from lookup_patient.
+5. cancel_appointment — Cancel an existing appointment. REQUIRES patient_id.
+6. reschedule_appointment — Move an appointment to a new date/time. REQUIRES patient_id.
+7. get_patient_appointments — Look up a patient's upcoming appointments. REQUIRES patient_id.
 
-You have these tools:
-- lookup_patient: Look up a patient by name — ALWAYS call this first
-- check_availability: Check open slots for a specific date
-- find_next_available: Find the next available appointment slots
-- book_appointment: Book a new appointment (requires verified patient)
-- cancel_appointment: Cancel an existing appointment (will also suggest reschedule dates)
-- reschedule_appointment: Move an appointment to a new date/time
-- get_patient_appointments: Look up a patient's upcoming appointments
-
-Key behaviors:
+STRICT RULES:
+- You MUST call lookup_patient BEFORE calling book_appointment, cancel_appointment, reschedule_appointment, or get_patient_appointments
+- If lookup_patient says the patient is not found, tell them they need to register first — do NOT attempt to book
+- If lookup_patient returns multiple matches, ask for clarification before proceeding
+- ALWAYS pass the patient_id from lookup_patient into subsequent tool calls
 - Be warm, empathetic, and efficient
 - Keep responses concise — this is a phone call
 - When cancelling, ALWAYS offer available reschedule dates from the tool result
@@ -182,7 +177,7 @@ async def vapi_webhook(request: Request):
                         "provider": "11labs",
                         "voiceId": "21m00Tcm4TlvDq8ikWAM",
                     },
-                    "firstMessage": "Hello! Thank you for calling. This is the dental practice AI assistant. How can I help you today?",
+                    "firstMessage": "Hello! Thank you for calling the dental practice. May I have your full name so I can pull up your file?",
                     "transcriber": {
                         "provider": "deepgram",
                         "model": "nova-2",
@@ -296,9 +291,10 @@ async def handle_function_call(
     """Execute real scheduling tools during a live voice call."""
 
     try:
-        # ── lookup_patient: Verify patient by name s──────────────────
+        # ── lookup_patient: Verify patient by name ──────────────────
         if fn_name == "lookup_patient":
             name = params.get("patient_name", "")
+            print(f"[VAPI LOOKUP] patient_name='{name}', workspace={workspace_id}")
             if not name:
                 return json.dumps({"found": False, "message": "I need the patient's name to look them up."})
             lookup = await lookup_patient_by_name(workspace_id, name)
@@ -366,7 +362,7 @@ async def handle_function_call(
             if not resolved_patient:
                 return json.dumps({
                     "booked": False,
-                    "message": "I need to verify your identity first. Can you tell me your full name so I can look you up?",
+                    "message": "I cannot book without verifying the patient first. Please ask for the patient's full name and call the lookup_patient tool before booking.",
                 })
             try:
                 result = await book_appointment(
@@ -411,7 +407,7 @@ async def handle_function_call(
             if not resolved_patient:
                 return json.dumps({
                     "cancelled": False,
-                    "message": "I need to verify your identity first. Can you tell me your full name?",
+                    "message": "I cannot cancel without verifying the patient first. Please ask for their full name and call lookup_patient.",
                 })
             result = await cancel_appointment(
                 workspace_id=workspace_id,
@@ -456,7 +452,7 @@ async def handle_function_call(
                     })
             return json.dumps({
                 "rescheduled": False,
-                "message": "I need to verify your identity first. Can you provide your patient reference number?",
+                "message": "I cannot reschedule without verifying the patient first. Please ask for their full name and call lookup_patient.",
             })
 
         if fn_name == "get_patient_appointments":
@@ -478,7 +474,7 @@ async def handle_function_call(
                 })
             return json.dumps({
                 "found": False,
-                "message": "I need your patient reference number to look up your appointments.",
+                "message": "I cannot look up appointments without verifying the patient first. Please ask for their full name and call lookup_patient.",
             })
 
         if fn_name == "transfer_to_human":
