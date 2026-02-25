@@ -244,15 +244,16 @@ async def book_appointment(
         .execute()
     )
 
-    if result.data and len(result.data) > 0:
-        result_data = result.data[0] if isinstance(result.data, list) else result_data
+    if result.data:
+        appt = result.data[0] if isinstance(result.data, list) else result.data
+
         await log_audit_event(
             workspace_id=workspace_id,
             actor_type="agent",
             actor_id="concierge",
             action="appointment_booked",
             resource_type="appointment",
-            resource_id=result_data["id"],
+            resource_id=appt["id"],
             metadata={
                 "date": date,
                 "time": time,
@@ -265,7 +266,7 @@ async def book_appointment(
         return {
             "success": True,
             "appointment": {
-                "id": result.data["id"],
+                "id": appt["id"],
                 "date": date,
                 "time": time,
                 "type": appointment_type,
