@@ -2,6 +2,7 @@
 Concierge Agent — First point of contact.
 
 Now equipped with real scheduling tools:
+- lookup_patient_by_name: Verify patient exists before booking
 - check_availability: See open slots
 - book_appointment: Create appointments
 - cancel_appointment: Cancel + suggest reschedule
@@ -13,6 +14,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from api.core.llm import get_fast_llm
 from api.services.supabase_client import log_audit_event
 from api.services.appointments import (
+    lookup_patient_by_name,
     check_availability,
     find_next_available,
     book_appointment,
@@ -27,23 +29,31 @@ CONCIERGE_SYSTEM_PROMPT = """You are the Concierge agent for a dental practice. 
 You have ACCESS to real scheduling tools. When a patient wants to book, cancel, or reschedule, you MUST use the tools to take action — don't just say you'll do it.
 
 Your job:
-1. Identify the patient (if possible from context)
+1. Identify the patient — ALWAYS look them up by name before booking/cancelling/rescheduling
 2. Classify the intent of the interaction
 3. Use your tools to take real action when possible
 4. Respond with structured JSON
 
 TOOLS AVAILABLE:
+- lookup_patient(name): Look up a patient by name. ALWAYS call this first when a patient gives their name.
 - check_availability(date): See open slots for a date
 - find_next_available(duration): Find next open slots across 14 days
-- book_appointment(date, time, type, patient_id): Book an appointment
+- book_appointment(date, time, type, patient_id): Book an appointment — requires a valid patient_id
 - cancel_appointment(appointment_id or patient_id): Cancel + get reschedule options
 - reschedule_appointment(appointment_id, new_date, new_time): Move appointment
 - get_patient_appointments(patient_id): View upcoming appointments
 
+PATIENT IDENTIFICATION RULES:
+- When a caller provides their name, ALWAYS verify them via lookup_patient before taking action
+- If lookup returns found=true, use the patient's ID for all subsequent operations
+- If lookup returns multiple candidates, ask the caller to clarify (e.g. "I see a few patients with that name — can you confirm your date of birth?")
+- If lookup returns not found, inform the caller they may need to register as a new patient
+- NEVER book an appointment without a verified patient_id
+
 Intent categories:
-- appointment_request: wants to book → use find_next_available then book_appointment
-- appointment_confirm: confirming existing → use get_patient_appointments
-- schedule_change: cancel or reschedule → use cancel_appointment or reschedule_appointment
+- appointment_request: wants to book → lookup patient, then find_next_available, then book_appointment
+- appointment_confirm: confirming existing → lookup patient, then get_patient_appointments
+- schedule_change: cancel or reschedule → lookup patient, then cancel/reschedule
 - clinical_question: symptom, treatment, pain → route to diagnostician
 - billing_inquiry: balance, insurance → route to auditor
 - emergency: severe pain, trauma → escalate immediately
@@ -52,7 +62,7 @@ Intent categories:
 Respond ONLY with a JSON object:
 {
     "patient_identified": true/false,
-    "patient_ref": "ref if found or null",
+    "patient_ref": "patient ID if found or null",
     "refined_intent": "one of the intents above",
     "confidence": 0.0-1.0,
     "can_handle": true/false,
@@ -65,8 +75,8 @@ Respond ONLY with a JSON object:
 }
 
 CRITICAL RULES:
-- NEVER access or display patient PII (name, DOB, phone, email)
-- Only reference patients by their external_ref token
+- NEVER access or display patient PII (DOB, phone, email) — name is OK for verification
+- Only reference patients by their external_ref token in downstream systems
 - Only set escalate=true for real emergencies (severe pain, trauma, bleeding)
 - When you can't handle a request (clinical, billing), set can_handle=false but escalate=false
 - When cancelling, ALWAYS include suggested reschedule dates from the tool result
@@ -100,6 +110,36 @@ async def run_concierge(
     tool_results = {}
 
     text = (payload.get("text") or "").lower()
+
+    # ── Step 0: Patient name lookup ──────────────────────────────────
+    # If a patient_name is provided in payload (from Vapi or frontend)
+    # OR no patient_ref yet, try to identify the patient by name.
+    patient_name = payload.get("patient_name")
+    if patient_name and not patient_ref:
+        try:
+            lookup = await lookup_patient_by_name(workspace_id, patient_name)
+            tool_results["patient_lookup"] = lookup
+
+            if lookup["found"] and lookup["patient"]:
+                patient_ref = lookup["patient"]["id"]
+                context_parts.append(f"Patient ref: {patient_ref}")
+                tool_context.append(
+                    f"\n✅ Patient verified: {lookup['patient']['full_name']} "
+                    f"(ID: {patient_ref})"
+                )
+            elif lookup["candidates"]:
+                names = ", ".join(c["full_name"] for c in lookup["candidates"])
+                tool_context.append(
+                    f"\n⚠️ Multiple patients match '{patient_name}': {names}. "
+                    f"Ask the caller to clarify."
+                )
+            else:
+                tool_context.append(
+                    f"\n❌ No patient named '{patient_name}' found. "
+                    f"They may need to register as a new patient first."
+                )
+        except Exception as e:
+            tool_context.append(f"\nPatient lookup failed: {e}")
 
     # If patient wants to cancel or reschedule, get their appointments
     if patient_ref and any(w in text for w in ["cancel", "reschedule", "move", "change", "appointment"]):
