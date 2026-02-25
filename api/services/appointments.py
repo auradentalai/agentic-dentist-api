@@ -2,7 +2,8 @@
 Appointment Service — database operations for the agent swarm.
 Agents call these functions to read/write the appointments table.
 """
-
+from zoneinfo import ZoneInfo
+CLINIC_TZ = ZoneInfo("America/Toronto")
 from datetime import datetime, timedelta
 from api.services.supabase_client import get_supabase_admin, log_audit_event
 import json
@@ -95,7 +96,7 @@ async def get_patient_appointments(
     )
 
     if upcoming_only:
-        query = query.gte("start_time", datetime.utcnow().isoformat())
+        query = query.gte("start_time", datetime.now(CLINIC_TZ).isoformat())
 
     result = query.execute()
     return result.data or []
@@ -162,7 +163,7 @@ async def find_next_available(
     Returns: [{"date": "2026-02-25", "slots": [{"start": "09:00", "end": "09:30"}, ...]}]
     """
     results = []
-    today = datetime.utcnow().date()
+    today = datetime.now(CLINIC_TZ).date()
 
     for day_offset in range(days_ahead):
         check_date = today + timedelta(days=day_offset)
@@ -173,7 +174,7 @@ async def find_next_available(
 
         # Skip today if past business hours
         if day_offset == 0:
-            now = datetime.utcnow()
+            now = datetime.now(CLINIC_TZ)
             if now.hour >= BUSINESS_HOURS["end"]:
                 continue
 
@@ -213,7 +214,7 @@ async def book_appointment(
     supabase = get_supabase_admin()
 
     duration = APPOINTMENT_DURATIONS.get(appointment_type, 30)
-    start_time = datetime.fromisoformat(f"{date}T{time}:00")
+    start_time = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), int(time[:2]), int(time[3:5]), tzinfo=CLINIC_TZ)
     end_time = start_time + timedelta(minutes=duration)
 
     # Verify slot is available
@@ -306,7 +307,7 @@ async def cancel_appointment(
             .select("*")
             .eq("workspace_id", workspace_id)
             .eq("patient_id", patient_id)
-            .gte("start_time", datetime.utcnow().isoformat())
+            .gte("start_time", datetime.now(CLINIC_TZ).isoformat())
             .neq("status", "cancelled")
             .order("start_time")
             .limit(1)
