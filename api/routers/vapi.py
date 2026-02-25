@@ -124,6 +124,7 @@ async def vapi_webhook(request: Request):
     """Main Vapi webhook endpoint."""
     try:
         body = await request.json()
+        print(f"[VAPI RAW] {json.dumps(body)[:500]}")
         message = body.get("message") or {}
         event_type = message.get("type", "")
 
