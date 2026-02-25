@@ -169,12 +169,29 @@ async def vapi_webhook(request: Request):
             function_call = message.get("functionCall") or {}
             fn_name = function_call.get("name", "")
             fn_params = function_call.get("parameters") or {}
-
             print(f"[VAPI DEBUG] function={fn_name}, params={fn_params}, workspace_id={workspace_id}")
 
             result = await handle_function_call(fn_name, fn_params, workspace_id, patient_ref)
             return {"result": result}
+        # tool-calls: Vapi server-side tool execution
+        if event_type == "tool-calls":
+            tool_calls = message.get("toolCallList") or message.get("toolCalls") or []
+            results = []
+            for tc in tool_calls:
+                fn = tc.get("function") or {}
+                fn_name = fn.get("name", "")
+                fn_params = fn.get("arguments") or {}
+                tc_id = tc.get("id", "")
 
+                print(f"[VAPI TOOL] function={fn_name}, params={fn_params}, workspace={workspace_id}")
+
+                result_str = await handle_function_call(fn_name, fn_params, workspace_id, patient_ref)
+                results.append({
+                    "toolCallId": tc_id,
+                    "result": result_str,
+                })
+
+            return {"results": results}
         # status-update
         if event_type == "status-update":
             status = message.get("status", "")
