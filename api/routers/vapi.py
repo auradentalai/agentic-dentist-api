@@ -333,10 +333,10 @@ async def vapi_webhook(request: Request):
         return {"ok": True}
 
 
-async def resolve_patient(workspace_id: str, params: dict, patient_ref: str | None) -> tuple[str | None, str | None]:
+async def resolve_patient(workspace_id: str, params: dict, patient_ref: str | None) -> tuple[str | None, str | None, str | None]:
     """
     Resolve patient from params. Tries patient_name lookup first, falls back to patient_ref.
-    Returns (patient_id, error_message). If error_message is set, patient_id is None.
+    Returns (patient_id, patient_name, error_message). If error_message is set, patient_id is None.
     """
     patient_name = params.get("patient_name", "")
 
@@ -346,17 +346,17 @@ async def resolve_patient(workspace_id: str, params: dict, patient_ref: str | No
         print(f"[VAPI LOOKUP RESULT] {lookup}")
 
         if lookup["found"] and lookup["patient"]:
-            return lookup["patient"]["id"], None
+            return lookup["patient"]["id"], lookup["patient"]["full_name"], None
         elif lookup["candidates"]:
             names = [c["full_name"] for c in lookup["candidates"]]
-            return None, f"I found multiple patients matching that name: {', '.join(names)}. Could you confirm the full name or date of birth?"
+            return None, None, f"I found multiple patients matching that name: {', '.join(names)}. Could you confirm the full name or date of birth?"
         else:
-            return None, f"I don't have a patient named {patient_name} on file. They may need to register as a new patient first."
+            return None, None, f"I don't have a patient named {patient_name} on file. They may need to register as a new patient first."
 
     if patient_ref:
-        return patient_ref, None
+        return patient_ref, None, None
 
-    return None, "I need the patient's full name before I can help with that. Could you tell me your full name?"
+    return None, None, "I need the patient's full name before I can help with that. Could you tell me your full name?"
 
 
 async def handle_function_call(
@@ -402,10 +402,10 @@ async def handle_function_call(
             })
 
         if fn_name == "book_appointment":
-            patient_id, error = await resolve_patient(workspace_id, params, patient_ref)
+            patient_id, verified_name, error = await resolve_patient(workspace_id, params, patient_ref)
             if error:
                 return json.dumps({"booked": False, "message": error})
-            print(f"[VAPI BOOK] date={params.get('date')}, time={params.get('time')}, type={params.get('appointment_type')}, patient={patient_id}, workspace={workspace_id}")
+            print(f"[VAPI BOOK] date={params.get('date')}, time={params.get('time')}, type={params.get('appointment_type')}, patient={patient_id}, name={verified_name}, workspace={workspace_id}")
             try:
                 result = await book_appointment(
                     workspace_id=workspace_id,
@@ -413,6 +413,7 @@ async def handle_function_call(
                     time=params.get("time", ""),
                     appointment_type=params.get("appointment_type", "general"),
                     patient_id=patient_id,
+                    patient_name=verified_name,
                     source="phone",
                 )
                 print(f"[VAPI BOOK RESULT] {result}")
@@ -432,7 +433,7 @@ async def handle_function_call(
                 return json.dumps({"error": True, "message": f"Booking failed: {str(e)}"})
 
         if fn_name == "cancel_appointment":
-            patient_id, error = await resolve_patient(workspace_id, params, patient_ref)
+            patient_id, verified_name, error = await resolve_patient(workspace_id, params, patient_ref)
             if error:
                 return json.dumps({"cancelled": False, "message": error})
             result = await cancel_appointment(
@@ -456,7 +457,7 @@ async def handle_function_call(
             })
 
         if fn_name == "reschedule_appointment":
-            patient_id, error = await resolve_patient(workspace_id, params, patient_ref)
+            patient_id, verified_name, error = await resolve_patient(workspace_id, params, patient_ref)
             if error:
                 return json.dumps({"rescheduled": False, "message": error})
             appts = await get_patient_appointments(workspace_id, patient_id)
@@ -483,7 +484,7 @@ async def handle_function_call(
             })
 
         if fn_name == "get_patient_appointments":
-            patient_id, error = await resolve_patient(workspace_id, params, patient_ref)
+            patient_id, verified_name, error = await resolve_patient(workspace_id, params, patient_ref)
             if error:
                 return json.dumps({"found": False, "message": error})
             appts = await get_patient_appointments(workspace_id, patient_id)

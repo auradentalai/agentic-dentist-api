@@ -378,6 +378,7 @@ async def book_appointment(
     time: str,  # "09:00"
     appointment_type: str = "general",
     patient_id: str | None = None,
+    patient_name: str | None = None,
     title: str | None = None,
     notes: str | None = None,
     source: str = "concierge",
@@ -388,6 +389,11 @@ async def book_appointment(
     duration = APPOINTMENT_DURATIONS.get(appointment_type, 30)
     start_time = datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), int(time[:2]), int(time[3:5]), tzinfo=CLINIC_TZ)
     end_time = start_time + timedelta(minutes=duration)
+
+    # Build title: "Cleaning — Julio Villalta" or just "Cleaning"
+    if not title:
+        type_label = appointment_type.replace("_", " ").title()
+        title = f"{type_label} — {patient_name}" if patient_name else type_label
 
     # Verify slot is available
     slots = await check_availability(workspace_id, date, duration)
@@ -428,7 +434,7 @@ async def book_appointment(
         .insert({
             "workspace_id": workspace_id,
             "patient_id": patient_id,
-            "title": title or appointment_type.replace("_", " ").title(),
+            "title": title,
             "appointment_type": appointment_type,
             "start_time": start_time.isoformat(),
             "end_time": end_time.isoformat(),
