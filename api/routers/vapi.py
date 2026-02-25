@@ -28,25 +28,22 @@ DEFAULT_WORKSPACE_ID = os.environ.get("DEFAULT_WORKSPACE_ID", "")
 
 CONCIERGE_SYSTEM_PROMPT = """You are the Concierge AI assistant for a dental practice. You are the first point of contact for patients calling in.
 
-MANDATORY FIRST STEP — DO THIS BEFORE ANYTHING ELSE:
-1. Ask the patient for their full name
-2. Call the lookup_patient tool with their name
-3. Only AFTER lookup_patient returns a patient_id can you proceed with any scheduling action
+IMPORTANT — ALWAYS collect the patient's full name before taking any action:
+1. Greet the patient and ask for their full name
+2. Ask what they need help with
+3. When calling book_appointment, cancel_appointment, reschedule_appointment, or get_patient_appointments, ALWAYS include the patient_name parameter — the system will verify them automatically
 
-You have these tools (USE THEM IN THIS ORDER):
-1. lookup_patient — MUST be called first. Takes patient_name, returns patient_id if found.
-2. check_availability — Check open slots for a specific date
-3. find_next_available — Find the next available appointment slots
-4. book_appointment — Book a new appointment. REQUIRES patient_id from lookup_patient.
-5. cancel_appointment — Cancel an existing appointment. REQUIRES patient_id.
-6. reschedule_appointment — Move an appointment to a new date/time. REQUIRES patient_id.
-7. get_patient_appointments — Look up a patient's upcoming appointments. REQUIRES patient_id.
+You have these tools:
+- check_availability: Check open slots for a specific date
+- find_next_available: Find the next available appointment slots
+- book_appointment: Book a new appointment — ALWAYS include patient_name
+- cancel_appointment: Cancel an existing appointment — ALWAYS include patient_name
+- reschedule_appointment: Move an appointment — ALWAYS include patient_name
+- get_patient_appointments: Look up upcoming appointments — ALWAYS include patient_name
 
-STRICT RULES:
-- You MUST call lookup_patient BEFORE calling book_appointment, cancel_appointment, reschedule_appointment, or get_patient_appointments
-- If lookup_patient says the patient is not found, tell them they need to register first — do NOT attempt to book
-- If lookup_patient returns multiple matches, ask for clarification before proceeding
-- ALWAYS pass the patient_id from lookup_patient into subsequent tool calls
+Key behaviors:
+- ALWAYS ask for the patient's full name early in the conversation
+- ALWAYS pass patient_name when calling any scheduling tool
 - Be warm, empathetic, and efficient
 - Keep responses concise — this is a phone call
 - When cancelling, ALWAYS offer available reschedule dates from the tool result
@@ -58,22 +55,8 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "lookup_patient",
-            "description": "Look up a patient by name to verify they exist in the system. ALWAYS call this first when a patient gives their name, before booking or modifying appointments.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "patient_name": {"type": "string", "description": "The patient's full name (e.g. 'John Smith')"},
-                },
-                "required": ["patient_name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "check_availability",
-            "description": "Check available appointment slots for a specific date. ALWAYS call this before telling the patient about availability.",
+            "description": "Check available appointment slots for a specific date.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -87,7 +70,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "find_next_available",
-            "description": "Find next available appointment slots. ALWAYS call this when patient asks to book.",
+            "description": "Find next available appointment slots across the next 14 days.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -99,16 +82,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "book_appointment",
-            "description": "Book a new appointment at a specific date and time. REQUIRES a patient_id from lookup_patient — never book without verifying the patient first.",
+            "description": "Book a new appointment. You MUST include the patient's full name.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "patient_name": {"type": "string", "description": "The patient's full name as they told you (e.g. 'John Smith'). REQUIRED."},
                     "date": {"type": "string", "description": "Date in YYYY-MM-DD format"},
                     "time": {"type": "string", "description": "Time in HH:MM 24-hour format"},
                     "appointment_type": {"type": "string", "description": "Type: cleaning, exam, filling, crown, consultation, general"},
-                    "patient_id": {"type": "string", "description": "Patient ID from lookup_patient result. REQUIRED."},
                 },
-                "required": ["date", "time", "patient_id"],
+                "required": ["patient_name", "date", "time"],
             },
         },
     },
@@ -116,14 +99,30 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "cancel_appointment",
-            "description": "Cancel the patient's next upcoming appointment. Use patient_id from lookup_patient.",
+            "description": "Cancel the patient's next upcoming appointment. You MUST include the patient's full name.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "patient_name": {"type": "string", "description": "The patient's full name. REQUIRED."},
                     "reason": {"type": "string", "description": "Reason for cancellation"},
-                    "patient_id": {"type": "string", "description": "Patient ID from lookup_patient result"},
                 },
-                "required": [],
+                "required": ["patient_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reschedule_appointment",
+            "description": "Reschedule the patient's next upcoming appointment to a new date/time. You MUST include the patient's full name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "patient_name": {"type": "string", "description": "The patient's full name. REQUIRED."},
+                    "new_date": {"type": "string", "description": "New date in YYYY-MM-DD format"},
+                    "new_time": {"type": "string", "description": "New time in HH:MM 24-hour format"},
+                },
+                "required": ["patient_name", "new_date", "new_time"],
             },
         },
     },
@@ -131,13 +130,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_patient_appointments",
-            "description": "Look up the patient's upcoming appointments. Use patient_id from lookup_patient.",
+            "description": "Look up the patient's upcoming appointments. You MUST include the patient's full name.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "patient_id": {"type": "string", "description": "Patient ID from lookup_patient result"},
+                    "patient_name": {"type": "string", "description": "The patient's full name. REQUIRED."},
                 },
-                "required": [],
+                "required": ["patient_name"],
             },
         },
     },
@@ -285,41 +284,38 @@ async def vapi_webhook(request: Request):
         return {"ok": True}
 
 
+async def resolve_patient(workspace_id: str, params: dict, patient_ref: str | None) -> tuple[str | None, str | None]:
+    """
+    Resolve patient from params. Tries patient_name lookup first, falls back to patient_ref.
+    Returns (patient_id, error_message). If error_message is set, patient_id is None.
+    """
+    patient_name = params.get("patient_name", "")
+
+    if patient_name:
+        print(f"[VAPI LOOKUP] Resolving patient_name='{patient_name}', workspace={workspace_id}")
+        lookup = await lookup_patient_by_name(workspace_id, patient_name)
+        print(f"[VAPI LOOKUP RESULT] {lookup}")
+
+        if lookup["found"] and lookup["patient"]:
+            return lookup["patient"]["id"], None
+        elif lookup["candidates"]:
+            names = [c["full_name"] for c in lookup["candidates"]]
+            return None, f"I found multiple patients matching that name: {', '.join(names)}. Could you confirm the full name or date of birth?"
+        else:
+            return None, f"I don't have a patient named {patient_name} on file. They may need to register as a new patient first."
+
+    if patient_ref:
+        return patient_ref, None
+
+    return None, "I need the patient's full name before I can help with that. Could you tell me your full name?"
+
+
 async def handle_function_call(
     fn_name: str, params: dict, workspace_id: str, patient_ref: str | None
 ) -> str:
     """Execute real scheduling tools during a live voice call."""
 
     try:
-        # ── lookup_patient: Verify patient by name ──────────────────
-        if fn_name == "lookup_patient":
-            name = params.get("patient_name", "")
-            print(f"[VAPI LOOKUP] patient_name='{name}', workspace={workspace_id}")
-            if not name:
-                return json.dumps({"found": False, "message": "I need the patient's name to look them up."})
-            lookup = await lookup_patient_by_name(workspace_id, name)
-            if lookup["found"] and lookup["patient"]:
-                p = lookup["patient"]
-                return json.dumps({
-                    "found": True,
-                    "patient_id": p["id"],
-                    "patient_name": p["full_name"],
-                    "message": f"I found {p['full_name']} in our system.",
-                })
-            elif lookup["candidates"]:
-                names = [c["full_name"] for c in lookup["candidates"]]
-                return json.dumps({
-                    "found": False,
-                    "multiple_matches": True,
-                    "candidates": names,
-                    "message": f"I found multiple patients: {', '.join(names)}. Can you confirm the full name or date of birth?",
-                })
-            else:
-                return json.dumps({
-                    "found": False,
-                    "message": f"I don't have a patient named {name} on file. They may need to register as a new patient.",
-                })
-
         if fn_name == "check_availability":
             date = params.get("date", "")
             duration = params.get("duration_minutes", 30)
@@ -357,20 +353,17 @@ async def handle_function_call(
             })
 
         if fn_name == "book_appointment":
-            resolved_patient = params.get("patient_id") or patient_ref
-            print(f"[VAPI BOOK] date={params.get('date')}, time={params.get('time')}, type={params.get('appointment_type')}, patient={resolved_patient}, workspace={workspace_id}")
-            if not resolved_patient:
-                return json.dumps({
-                    "booked": False,
-                    "message": "I cannot book without verifying the patient first. Please ask for the patient's full name and call the lookup_patient tool before booking.",
-                })
+            patient_id, error = await resolve_patient(workspace_id, params, patient_ref)
+            if error:
+                return json.dumps({"booked": False, "message": error})
+            print(f"[VAPI BOOK] date={params.get('date')}, time={params.get('time')}, type={params.get('appointment_type')}, patient={patient_id}, workspace={workspace_id}")
             try:
                 result = await book_appointment(
                     workspace_id=workspace_id,
                     date=params.get("date", ""),
                     time=params.get("time", ""),
                     appointment_type=params.get("appointment_type", "general"),
-                    patient_id=resolved_patient,
+                    patient_id=patient_id,
                     source="phone",
                 )
                 print(f"[VAPI BOOK RESULT] {result}")
@@ -386,32 +379,16 @@ async def handle_function_call(
                 })
             except Exception as e:
                 print(f"[VAPI BOOK ERROR] {e}")
-                import traceback
                 traceback.print_exc()
                 return json.dumps({"error": True, "message": f"Booking failed: {str(e)}"})
 
-            if result.get("success"):
-                appt = result["appointment"]
-                return json.dumps({
-                    "booked": True,
-                    "message": f"I've booked your {appt['type']} appointment for {appt['date']} at {appt['time']}. You'll receive a confirmation shortly.",
-                })
-            return json.dumps({
-                "booked": False,
-                "message": result.get("error", "Sorry, I couldn't book that slot."),
-                "available_slots": result.get("available_slots", []),
-            })
-
         if fn_name == "cancel_appointment":
-            resolved_patient = params.get("patient_id") or patient_ref
-            if not resolved_patient:
-                return json.dumps({
-                    "cancelled": False,
-                    "message": "I cannot cancel without verifying the patient first. Please ask for their full name and call lookup_patient.",
-                })
+            patient_id, error = await resolve_patient(workspace_id, params, patient_ref)
+            if error:
+                return json.dumps({"cancelled": False, "message": error})
             result = await cancel_appointment(
                 workspace_id=workspace_id,
-                patient_id=resolved_patient,
+                patient_id=patient_id,
                 reason=params.get("reason", "Patient requested cancellation"),
             )
             if result.get("success"):
@@ -430,51 +407,49 @@ async def handle_function_call(
             })
 
         if fn_name == "reschedule_appointment":
-            resolved_patient = params.get("patient_id") or patient_ref
-            if resolved_patient:
-                appts = await get_patient_appointments(workspace_id, resolved_patient)
-                if appts:
-                    result = await reschedule_appointment(
-                        workspace_id=workspace_id,
-                        appointment_id=appts[0]["id"],
-                        new_date=params.get("new_date", ""),
-                        new_time=params.get("new_time", ""),
-                    )
-                    if result.get("success"):
-                        r = result["rescheduled"]
-                        return json.dumps({
-                            "rescheduled": True,
-                            "message": f"Done! I've moved your appointment from {r['old_date']} at {r['old_time']} to {r['new_date']} at {r['new_time']}.",
-                        })
+            patient_id, error = await resolve_patient(workspace_id, params, patient_ref)
+            if error:
+                return json.dumps({"rescheduled": False, "message": error})
+            appts = await get_patient_appointments(workspace_id, patient_id)
+            if appts:
+                result = await reschedule_appointment(
+                    workspace_id=workspace_id,
+                    appointment_id=appts[0]["id"],
+                    new_date=params.get("new_date", ""),
+                    new_time=params.get("new_time", ""),
+                )
+                if result.get("success"):
+                    r = result["rescheduled"]
                     return json.dumps({
-                        "rescheduled": False,
-                        "message": result.get("error", "That time isn't available."),
+                        "rescheduled": True,
+                        "message": f"Done! I've moved your appointment from {r['old_date']} at {r['old_time']} to {r['new_date']} at {r['new_time']}.",
                     })
+                return json.dumps({
+                    "rescheduled": False,
+                    "message": result.get("error", "That time isn't available."),
+                })
             return json.dumps({
                 "rescheduled": False,
-                "message": "I cannot reschedule without verifying the patient first. Please ask for their full name and call lookup_patient.",
+                "message": "I don't see any upcoming appointments to reschedule.",
             })
 
         if fn_name == "get_patient_appointments":
-            resolved_patient = params.get("patient_id") or patient_ref
-            if resolved_patient:
-                appts = await get_patient_appointments(workspace_id, resolved_patient)
-                if appts:
-                    appt_list = []
-                    for a in appts:
-                        appt_list.append(f"{a['appointment_type']} on {a['start_time'][:10]} at {a['start_time'][11:16]}")
-                    return json.dumps({
-                        "found": True,
-                        "appointments": appts,
-                        "message": f"I found {len(appts)} upcoming appointment(s): {', '.join(appt_list)}",
-                    })
+            patient_id, error = await resolve_patient(workspace_id, params, patient_ref)
+            if error:
+                return json.dumps({"found": False, "message": error})
+            appts = await get_patient_appointments(workspace_id, patient_id)
+            if appts:
+                appt_list = []
+                for a in appts:
+                    appt_list.append(f"{a['appointment_type']} on {a['start_time'][:10]} at {a['start_time'][11:16]}")
                 return json.dumps({
-                    "found": False,
-                    "message": "I don't see any upcoming appointments on file.",
+                    "found": True,
+                    "appointments": appts,
+                    "message": f"I found {len(appts)} upcoming appointment(s): {', '.join(appt_list)}",
                 })
             return json.dumps({
                 "found": False,
-                "message": "I cannot look up appointments without verifying the patient first. Please ask for their full name and call lookup_patient.",
+                "message": "I don't see any upcoming appointments on file.",
             })
 
         if fn_name == "transfer_to_human":

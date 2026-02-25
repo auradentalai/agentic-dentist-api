@@ -12,7 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Default appointment durations by type (minutes)s
+# Default appointment durations by type (minutes)
 APPOINTMENT_DURATIONS = {
     "cleaning": 60,
     "exam": 30,
@@ -78,6 +78,15 @@ async def lookup_patient_by_name(
             "message": "No patients found in this workspace.",
         }
 
+    # DEBUG: Log what the RPC returns so we can see the field names
+    logger.info(f"[PATIENT LOOKUP] Searching for: '{patient_name}'")
+    logger.info(f"[PATIENT LOOKUP] Total patients in workspace: {len(patients)}")
+    print(f"[PATIENT LOOKUP] Searching for: '{patient_name}'")
+    print(f"[PATIENT LOOKUP] Total patients in workspace: {len(patients)}")
+    if patients:
+        print(f"[PATIENT LOOKUP] Sample patient keys: {list(patients[0].keys())}")
+        print(f"[PATIENT LOOKUP] Sample patient data: {patients[0]}")
+
     # Normalize search name
     search = patient_name.strip().lower()
 
@@ -124,7 +133,7 @@ def _safe_patient(patient: dict) -> dict:
         "id": patient.get("id"),
         "external_ref": patient.get("external_ref"),
         "full_name": patient.get("full_name"),
-        "status": patient.get("status"),
+        "is_active": patient.get("is_active", True),
     }
 
 
@@ -329,7 +338,7 @@ async def book_appointment(
         supabase_check = get_supabase_admin()
         patient_result = (
             supabase_check.table("patients")
-            .select("id, external_ref, status")
+            .select("id, external_ref, is_active")
             .eq("id", patient_id)
             .eq("workspace_id", workspace_id)
             .execute()
@@ -341,7 +350,7 @@ async def book_appointment(
                          "Please verify the patient name or register them first.",
             }
         patient_record = patient_result.data[0]
-        if patient_record.get("status") == "inactive":
+        if not patient_record.get("is_active", True):
             return {
                 "success": False,
                 "error": "This patient record is inactive. Please reactivate before booking.",
