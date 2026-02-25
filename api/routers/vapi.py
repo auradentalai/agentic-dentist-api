@@ -146,7 +146,7 @@ async def vapi_webhook(request: Request):
     """Main Vapi webhook endpoint."""
     try:
         body = await request.json()
-        print(f"[VAPI RAW] {json.dumps(body)[:500]}")
+        print(f"[VAPI RAW] {json.dumps(body)[:3000]}")
         message = body.get("message") or {}
         event_type = message.get("type", "")
 
@@ -192,12 +192,55 @@ async def vapi_webhook(request: Request):
             fn_name = function_call.get("name", "")
             fn_params = function_call.get("parameters") or {}
             print(f"[VAPI DEBUG] function={fn_name}, params={fn_params}, workspace_id={workspace_id}")
+            print(f"[VAPI FUNCTION-CALL] message keys: {list(message.keys())}")
+
+            # Try to extract patient name from conversation for this format too
+            artifact = message.get("artifact") or {}
+            messages_list = artifact.get("messages") or message.get("messages") or []
+            if messages_list and not fn_params.get("patient_name"):
+                for m in messages_list:
+                    role = m.get("role", "")
+                    content = (m.get("content") or m.get("text") or "").strip()
+                    if role == "user" and content and len(content) < 60:
+                        lower = content.lower()
+                        if not any(w in lower for w in ["book", "cancel", "reschedule", "appointment", "schedule", "yes", "no", "okay", "sure", "please", "thank"]):
+                            if fn_name in ("book_appointment", "cancel_appointment", "reschedule_appointment", "get_patient_appointments"):
+                                fn_params["patient_name"] = content
+                                print(f"[VAPI INJECT] Added patient_name='{content}' to {fn_name}")
+                            break
 
             result = await handle_function_call(fn_name, fn_params, workspace_id, patient_ref)
             return {"result": result}
         # tool-calls: Vapi server-side tool execution
         if event_type == "tool-calls":
             tool_calls = message.get("toolCallList") or message.get("toolCalls") or []
+
+            # Log all available keys in the message to find conversation context
+            print(f"[VAPI TOOL-CALLS] message keys: {list(message.keys())}")
+
+            # Vapi may send conversation messages — try to extract patient name
+            conversation_name = None
+            artifact = message.get("artifact") or {}
+            messages_list = artifact.get("messages") or message.get("messages") or []
+            if messages_list:
+                print(f"[VAPI MESSAGES] Found {len(messages_list)} messages in conversation")
+                for m in messages_list:
+                    print(f"[VAPI MSG] role={m.get('role')}, content={str(m.get('content',''))[:200]}")
+
+            # Extract name: look for the user's first substantive response
+            # (their reply to "May I have your full name?")
+            for m in messages_list:
+                role = m.get("role", "")
+                content = (m.get("content") or m.get("text") or "").strip()
+                if role == "user" and content and len(content) < 60:
+                    # First short user message is likely the name
+                    # Skip messages that are clearly intents, not names
+                    lower = content.lower()
+                    if not any(w in lower for w in ["book", "cancel", "reschedule", "appointment", "schedule", "yes", "no", "okay", "sure", "please", "thank"]):
+                        conversation_name = content
+                        print(f"[VAPI NAME EXTRACTED] '{conversation_name}' from conversation")
+                        break
+
             results = []
             for tc in tool_calls:
                 fn = tc.get("function") or {}
@@ -209,6 +252,12 @@ async def vapi_webhook(request: Request):
                     except:
                         fn_params = {}
                 tc_id = tc.get("id", "")
+
+                # Inject extracted patient name if the tool needs it and AI didn't provide it
+                if conversation_name and not fn_params.get("patient_name"):
+                    if fn_name in ("book_appointment", "cancel_appointment", "reschedule_appointment", "get_patient_appointments"):
+                        fn_params["patient_name"] = conversation_name
+                        print(f"[VAPI INJECT] Added patient_name='{conversation_name}' to {fn_name}")
 
                 print(f"[VAPI TOOL] function={fn_name}, params={fn_params}, workspace={workspace_id}")
 
