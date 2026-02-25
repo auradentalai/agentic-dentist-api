@@ -12,7 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Default appointment durations by type (minutes)
+# Default appointment durations by type (minutes)s
 APPOINTMENT_DURATIONS = {
     "cleaning": 60,
     "exam": 30,

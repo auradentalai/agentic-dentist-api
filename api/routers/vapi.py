@@ -296,7 +296,7 @@ async def handle_function_call(
     """Execute real scheduling tools during a live voice call."""
 
     try:
-        # ── lookup_patient: Verify patient by name ──────────────────
+        # ── lookup_patient: Verify patient by name s──────────────────
         if fn_name == "lookup_patient":
             name = params.get("patient_name", "")
             if not name:
