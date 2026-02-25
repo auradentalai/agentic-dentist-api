@@ -305,14 +305,33 @@ async def handle_function_call(
             })
 
         if fn_name == "book_appointment":
-            result = await book_appointment(
-                workspace_id=workspace_id,
-                date=params.get("date", ""),
-                time=params.get("time", ""),
-                appointment_type=params.get("appointment_type", "general"),
-                patient_id=patient_ref,
-                source="phone",
-            )
+            print(f"[VAPI BOOK] date={params.get('date')}, time={params.get('time')}, type={params.get('appointment_type')}, workspace={workspace_id}")
+            try:
+                result = await book_appointment(
+                    workspace_id=workspace_id,
+                    date=params.get("date", ""),
+                    time=params.get("time", ""),
+                    appointment_type=params.get("appointment_type", "general"),
+                    patient_id=patient_ref,
+                    source="phone",
+                )
+                print(f"[VAPI BOOK RESULT] {result}")
+                if result.get("success"):
+                    appt = result["appointment"]
+                    return json.dumps({
+                        "booked": True,
+                        "message": f"I've booked your {appt['type']} appointment for {appt['date']} at {appt['time']}. You'll receive a confirmation shortly.",
+                    })
+                return json.dumps({
+                    "booked": False,
+                    "message": result.get("error", "Sorry, I couldn't book that slot."),
+                })
+            except Exception as e:
+                print(f"[VAPI BOOK ERROR] {e}")
+                import traceback
+                traceback.print_exc()
+                return json.dumps({"error": True, "message": f"Booking failed: {str(e)}"})
+
             if result.get("success"):
                 appt = result["appointment"]
                 return json.dumps({
