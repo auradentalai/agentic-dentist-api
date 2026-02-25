@@ -181,6 +181,11 @@ async def vapi_webhook(request: Request):
                 fn = tc.get("function") or {}
                 fn_name = fn.get("name", "")
                 fn_params = fn.get("arguments") or {}
+                if isinstance(fn_params, str):
+                    try:
+                        fn_params = json.loads(fn_params)
+                    except:
+                        fn_params = {}
                 tc_id = tc.get("id", "")
 
                 print(f"[VAPI TOOL] function={fn_name}, params={fn_params}, workspace={workspace_id}")
