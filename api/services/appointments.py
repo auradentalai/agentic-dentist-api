@@ -232,7 +232,7 @@ async def book_appointment(
         .insert({
             "workspace_id": workspace_id,
             "patient_id": patient_id,
-            "title": title or APPOINTMENT_DURATIONS.get(appointment_type, "Appointment"),
+            "title": title or appointment_type.replace("_", " ").title(),
             "appointment_type": appointment_type,
             "start_time": start_time.isoformat(),
             "end_time": end_time.isoformat(),
@@ -241,19 +241,18 @@ async def book_appointment(
             "source": source,
             "status": "scheduled",
         })
-        .select()
-        .single()
         .execute()
     )
 
-    if result.data:
+    if result.data and len(result.data) > 0:
+        result_data = result.data[0] if isinstance(result.data, list) else result_data
         await log_audit_event(
             workspace_id=workspace_id,
             actor_type="agent",
             actor_id="concierge",
             action="appointment_booked",
             resource_type="appointment",
-            resource_id=result.data["id"],
+            resource_id=result_data["id"],
             metadata={
                 "date": date,
                 "time": time,
