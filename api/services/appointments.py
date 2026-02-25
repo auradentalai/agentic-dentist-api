@@ -43,6 +43,7 @@ async def lookup_patient_by_name(
     """
     Look up a patient by name in the encrypted patients table.
     Uses the list_patients RPC to decrypt PHI, then filters by name.
+    Includes fuzzy matching to handle voice transcription errors.
 
     Returns:
         {
@@ -52,6 +53,8 @@ async def lookup_patient_by_name(
             "message": "human-readable status"
         }
     """
+    from difflib import SequenceMatcher
+
     supabase = get_supabase_admin()
 
     try:
@@ -79,8 +82,6 @@ async def lookup_patient_by_name(
         }
 
     # DEBUG: Log what the RPC returns so we can see the field names
-    logger.info(f"[PATIENT LOOKUP] Searching for: '{patient_name}'")
-    logger.info(f"[PATIENT LOOKUP] Total patients in workspace: {len(patients)}")
     print(f"[PATIENT LOOKUP] Searching for: '{patient_name}'")
     print(f"[PATIENT LOOKUP] Total patients in workspace: {len(patients)}")
     if patients:
@@ -93,6 +94,7 @@ async def lookup_patient_by_name(
     # 1) Exact match (case-insensitive)
     exact = [p for p in patients if (p.get("full_name") or "").strip().lower() == search]
     if len(exact) == 1:
+        print(f"[PATIENT LOOKUP] Exact match: {exact[0]['full_name']}")
         return {
             "found": True,
             "patient": _safe_patient(exact[0]),
@@ -103,6 +105,7 @@ async def lookup_patient_by_name(
     # 2) Partial / contains match
     partial = [p for p in patients if search in (p.get("full_name") or "").strip().lower()]
     if len(partial) == 1:
+        print(f"[PATIENT LOOKUP] Partial match: {partial[0]['full_name']}")
         return {
             "found": True,
             "patient": _safe_patient(partial[0]),
@@ -118,7 +121,71 @@ async def lookup_patient_by_name(
             "message": f"Multiple patients match '{patient_name}'. Please clarify which one.",
         }
 
-    # 3) No match at all
+    # 3) First name match — useful when caller gives just first name
+    search_parts = search.split()
+    if search_parts:
+        first_name = search_parts[0]
+        first_matches = [
+            p for p in patients
+            if (p.get("full_name") or "").strip().lower().split()[0] == first_name
+        ]
+        if len(first_matches) == 1:
+            print(f"[PATIENT LOOKUP] First name match: {first_matches[0]['full_name']}")
+            return {
+                "found": True,
+                "patient": _safe_patient(first_matches[0]),
+                "candidates": [],
+                "message": f"Patient found: {first_matches[0]['full_name']}",
+            }
+        if len(first_matches) > 1:
+            return {
+                "found": False,
+                "patient": None,
+                "candidates": [_safe_patient(p) for p in first_matches[:5]],
+                "message": f"Multiple patients with first name '{first_name}'. Please provide the full name.",
+            }
+
+    # 4) Fuzzy match — handles voice transcription errors (e.g. "Vialta" vs "Villalta")
+    fuzzy_matches = []
+    for p in patients:
+        name = (p.get("full_name") or "").strip().lower()
+        ratio = SequenceMatcher(None, search, name).ratio()
+        if ratio >= 0.65:  # 65% similarity threshold
+            fuzzy_matches.append((p, ratio))
+            print(f"[PATIENT LOOKUP] Fuzzy match: '{name}' score={ratio:.2f}")
+
+    # Sort by best match
+    fuzzy_matches.sort(key=lambda x: x[1], reverse=True)
+
+    if len(fuzzy_matches) == 1:
+        best = fuzzy_matches[0][0]
+        print(f"[PATIENT LOOKUP] Single fuzzy match: {best['full_name']} (score={fuzzy_matches[0][1]:.2f})")
+        return {
+            "found": True,
+            "patient": _safe_patient(best),
+            "candidates": [],
+            "message": f"Patient found: {best['full_name']}",
+        }
+
+    if len(fuzzy_matches) > 1:
+        # If top match is significantly better than second, use it
+        if fuzzy_matches[0][1] - fuzzy_matches[1][1] >= 0.15:
+            best = fuzzy_matches[0][0]
+            print(f"[PATIENT LOOKUP] Best fuzzy match: {best['full_name']} (score={fuzzy_matches[0][1]:.2f}, gap={fuzzy_matches[0][1] - fuzzy_matches[1][1]:.2f})")
+            return {
+                "found": True,
+                "patient": _safe_patient(best),
+                "candidates": [],
+                "message": f"Patient found: {best['full_name']}",
+            }
+        return {
+            "found": False,
+            "patient": None,
+            "candidates": [_safe_patient(p) for p, _ in fuzzy_matches[:5]],
+            "message": f"Multiple patients match '{patient_name}'. Please clarify which one.",
+        }
+
+    # 5) No match at all
     return {
         "found": False,
         "patient": None,
