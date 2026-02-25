@@ -6,7 +6,11 @@ from zoneinfo import ZoneInfo
 CLINIC_TZ = ZoneInfo("America/Toronto")
 from datetime import datetime, timedelta
 from api.services.supabase_client import get_supabase_admin, log_audit_event
+from api.core.config import settings
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Default appointment durations by type (minutes)
 APPOINTMENT_DURATIONS = {
@@ -30,6 +34,98 @@ BUSINESS_HOURS = {
     "slot_minutes": 30,
     "days": [0, 1, 2, 3, 4],  # Mon-Fri
 }
+
+
+async def lookup_patient_by_name(
+    workspace_id: str,
+    patient_name: str,
+) -> dict:
+    """
+    Look up a patient by name in the encrypted patients table.
+    Uses the list_patients RPC to decrypt PHI, then filters by name.
+
+    Returns:
+        {
+            "found": True/False,
+            "patient": { "id", "external_ref", "full_name", ... } or None,
+            "candidates": [ ... ] if multiple partial matches,
+            "message": "human-readable status"
+        }
+    """
+    supabase = get_supabase_admin()
+
+    try:
+        result = supabase.rpc("list_patients", {
+            "p_workspace_id": workspace_id,
+            "p_encryption_key": settings.phi_encryption_key,
+        }).execute()
+    except Exception as e:
+        logger.error(f"Patient lookup RPC failed: {e}")
+        return {
+            "found": False,
+            "patient": None,
+            "candidates": [],
+            "message": f"Failed to query patients: {e}",
+        }
+
+    patients = result.data or []
+
+    if not patients:
+        return {
+            "found": False,
+            "patient": None,
+            "candidates": [],
+            "message": "No patients found in this workspace.",
+        }
+
+    # Normalize search name
+    search = patient_name.strip().lower()
+
+    # 1) Exact match (case-insensitive)
+    exact = [p for p in patients if (p.get("full_name") or "").strip().lower() == search]
+    if len(exact) == 1:
+        return {
+            "found": True,
+            "patient": _safe_patient(exact[0]),
+            "candidates": [],
+            "message": f"Patient found: {exact[0]['full_name']}",
+        }
+
+    # 2) Partial / contains match
+    partial = [p for p in patients if search in (p.get("full_name") or "").strip().lower()]
+    if len(partial) == 1:
+        return {
+            "found": True,
+            "patient": _safe_patient(partial[0]),
+            "candidates": [],
+            "message": f"Patient found: {partial[0]['full_name']}",
+        }
+
+    if len(partial) > 1:
+        return {
+            "found": False,
+            "patient": None,
+            "candidates": [_safe_patient(p) for p in partial[:5]],
+            "message": f"Multiple patients match '{patient_name}'. Please clarify which one.",
+        }
+
+    # 3) No match at all
+    return {
+        "found": False,
+        "patient": None,
+        "candidates": [],
+        "message": f"No patient named '{patient_name}' found. They may need to be registered first.",
+    }
+
+
+def _safe_patient(patient: dict) -> dict:
+    """Return only the fields safe for agent context (no raw PII beyond name)."""
+    return {
+        "id": patient.get("id"),
+        "external_ref": patient.get("external_ref"),
+        "full_name": patient.get("full_name"),
+        "status": patient.get("status"),
+    }
 
 
 async def get_appointments_for_date(
@@ -227,6 +323,29 @@ async def book_appointment(
             "error": "This time slot is not available",
             "available_slots": slots[:5],
         }
+
+    # Validate patient exists if patient_id is provided
+    if patient_id:
+        supabase_check = get_supabase_admin()
+        patient_result = (
+            supabase_check.table("patients")
+            .select("id, external_ref, status")
+            .eq("id", patient_id)
+            .eq("workspace_id", workspace_id)
+            .execute()
+        )
+        if not patient_result.data:
+            return {
+                "success": False,
+                "error": f"Patient ID '{patient_id}' not found in this workspace. "
+                         "Please verify the patient name or register them first.",
+            }
+        patient_record = patient_result.data[0]
+        if patient_record.get("status") == "inactive":
+            return {
+                "success": False,
+                "error": "This patient record is inactive. Please reactivate before booking.",
+            }
 
     result = (
         supabase.table("appointments")
